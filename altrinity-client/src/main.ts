@@ -14,9 +14,9 @@ import 'leaflet/dist/leaflet.css'
 
 // Define a Keycloak type (keycloak-js has partial typing support)
 let keycloak = new Keycloak({
-  url: 'https://auth.altrinitytech.com',   // Keycloak base URL
-  realm: 'altrinity',                // your realm
-  clientId: 'vue-frontend',       // frontend client
+  url: import.meta.env.VITE_KEYCLOAK_URL,   // Keycloak base URL
+  realm: import.meta.env.VITE_KEYCLOAK_REALM,                // your realm
+  clientId: import.meta.env.VITE_KEYCLOAK_CLIENT_ID,       // frontend client
 })
 
 const vuetify = createVuetify({

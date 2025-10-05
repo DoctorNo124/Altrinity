@@ -20,8 +20,9 @@ declare module 'vue-router/auto-routes' {
   export interface RouteNamedMap {
     '/': RouteRecordInfo<'/', '/', Record<never, never>, Record<never, never>>,
     '/Admin': RouteRecordInfo<'/Admin', '/Admin', Record<never, never>, Record<never, never>>,
-    '/Map': RouteRecordInfo<'/Map', '/Map', Record<never, never>, Record<never, never>>,
+    '/CommandHub': RouteRecordInfo<'/CommandHub', '/CommandHub', Record<never, never>, Record<never, never>>,
     '/PendingApproval': RouteRecordInfo<'/PendingApproval', '/PendingApproval', Record<never, never>, Record<never, never>>,
+    '/VolunteerMap': RouteRecordInfo<'/VolunteerMap', '/VolunteerMap', Record<never, never>, Record<never, never>>,
   }
 
   /**
@@ -43,12 +44,16 @@ declare module 'vue-router/auto-routes' {
       routes: '/Admin'
       views: never
     }
-    'src/pages/Map.vue': {
-      routes: '/Map'
+    'src/pages/CommandHub.vue': {
+      routes: '/CommandHub'
       views: never
     }
     'src/pages/PendingApproval.vue': {
       routes: '/PendingApproval'
+      views: never
+    }
+    'src/pages/VolunteerMap.vue': {
+      routes: '/VolunteerMap'
       views: never
     }
   }

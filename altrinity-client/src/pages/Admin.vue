@@ -17,7 +17,7 @@ const loading = ref(false)
 async function fetchUsers() {
   loading.value = true
   try {
-    const res = await fetch('https://api.altrinitytech.com/api/users', {
+    const res = await fetch(`${import.meta.env.VITE_API_BASE}/users`, {
       headers: {
         Authorization: `Bearer ${keycloak?.token}`,
       },
@@ -30,7 +30,7 @@ async function fetchUsers() {
 
 // Approve user: pending -> volunteer
 async function approveUser(user: User) {
-  await fetch(`https://api.altrinitytech.com/api/users/${user.id}/role`, {
+  await fetch(`${import.meta.env.VITE_API_BASE}/${user.id}/role`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',

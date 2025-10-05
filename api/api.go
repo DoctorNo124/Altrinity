@@ -1,17 +1,20 @@
 package main
 
 import (
+	"altrinity/api/controllers"
+	"altrinity/api/middleware"
+	"altrinity/api/repositories"
+	"altrinity/api/services"
 	"log"
 	"os"
 	"time"
 
-	"altrinity/api/controllers"
-	"altrinity/api/repositories"
-	"altrinity/api/services"
-
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
+	"github.com/jmoiron/sqlx"
 	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 func init() {
@@ -22,14 +25,19 @@ func init() {
 }
 
 func main() {
-	keycloakURL = os.Getenv("KEYCLOAK_URL")    // e.g. http://localhost:8080
-	realm = os.Getenv("KEYCLOAK_REALM")        // e.g. my-app
-	clientID = os.Getenv("KEYCLOAK_CLIENT_ID") // e.g. go-api
-	clientSecret = os.Getenv("KEYCLOAK_CLIENT_SECRET")
+	middleware.InitJWKS()
+	keycloakURL := os.Getenv("KEYCLOAK_URL")    // e.g. http://localhost:8080
+	realm := os.Getenv("KEYCLOAK_REALM")        // e.g. my-app
+	clientID := os.Getenv("KEYCLOAK_CLIENT_ID") // e.g. go-api
+	clientSecret := os.Getenv("KEYCLOAK_CLIENT_SECRET")
+	db, err := sqlx.Connect("postgres", os.Getenv("POSTGRES_DSN"))
+	if err != nil {
+		log.Fatal("DB connect error:", err)
+	}
 
 	r := gin.Default()
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000", "http://192.168.50.175:3000/", "http://192.168.56.1:3000/", "http://172.27.240.1:3000/", "https://altrinity.com", "https://app.altrinitytech.com"},
+		AllowOrigins:     []string{"https://app.altrinitytech.com", "http://localhost:3000"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Authorization", "Content-Type"},
 		ExposeHeaders:    []string{"Content-Length"},
@@ -53,19 +61,30 @@ func main() {
 		Service: service,
 	}
 
+	redisClient := redis.NewClient(&redis.Options{
+		Addr: os.Getenv("REDIS_ADDR"), // e.g. localhost:6379
+	})
+
+	volRepo := &repositories.VolunteerRepository{DB: db, Redis: redisClient}
+	volService := &services.VolunteerService{Repo: volRepo}
+	volController := &controllers.VolunteerController{Service: volService}
+
 	api := r.Group("/api")
 	{
-		api.GET("/users", AuthMiddleware("admin"), adminController.ListUsers)
-		api.PUT("/users/:id/role", AuthMiddleware("admin"), adminController.UpdateUserRole)
+		api.GET("/users", middleware.AuthMiddleware("admin"), adminController.ListUsers)
+		api.PUT("/users/:id/role", middleware.AuthMiddleware("admin"), adminController.UpdateUserRole)
 		api.GET("/public", func(c *gin.Context) {
 			c.JSON(200, gin.H{"msg": "anyone can access this"})
 		})
-		api.GET("/user", AuthMiddleware(""), func(c *gin.Context) {
+		api.GET("/user", middleware.AuthMiddleware(""), func(c *gin.Context) {
 			c.JSON(200, gin.H{"msg": "hello user"})
 		})
-		api.GET("/admin", AuthMiddleware("admin"), func(c *gin.Context) {
+		api.GET("/admin", middleware.AuthMiddleware("admin"), func(c *gin.Context) {
 			c.JSON(200, gin.H{"msg": "hello admin"})
 		})
+		api.POST("/positions", middleware.AuthMiddleware("volunteer"), volController.UpdatePosition)
+		api.GET("/positions", middleware.AuthMiddleware("admin"), volController.GetPositions)
+		api.GET("/ws/positions", volController.StreamPositions)
 	}
 
 	r.Run("0.0.0.0:8081")
