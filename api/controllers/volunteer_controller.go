@@ -19,6 +19,10 @@ type VolunteerController struct {
 	Service *services.VolunteerService
 }
 
+type UserIdWrapper struct {
+	UserId string `json:"userId"`
+}
+
 // Volunteer sends location updates periodically (mobile side).
 func (vc *VolunteerController) UpdatePosition(c *gin.Context) {
 	var pos repositories.Position
@@ -42,6 +46,11 @@ func (vc *VolunteerController) UpdatePosition(c *gin.Context) {
 
 	// Persist position to PostGIS (optional)
 	if err := vc.Service.UpdatePosition(context.Background(), pos); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := vc.Service.AppendPositionToRoute(context.Background(), pos.ID, pos.Lat, pos.Lng); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -100,4 +109,28 @@ func (vc *VolunteerController) GetPositions(c *gin.Context) {
 		positions = []repositories.Position{}
 	}
 	c.JSON(http.StatusOK, positions)
+}
+
+func (vc *VolunteerController) GetRoutePositions(c *gin.Context) {
+	userID := c.Query("user_id") // optional filter for a specific volunteer
+	points, err := vc.Service.RouteRepo.GetAllPositions(context.Background(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch positions"})
+		return
+	}
+	c.JSON(http.StatusOK, points)
+}
+
+func (vc *VolunteerController) CompleteRoute(c *gin.Context) {
+	var userIdWrapper UserIdWrapper
+	if err := c.ShouldBindJSON(&userIdWrapper); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid position data"})
+		return
+	}
+	err := vc.Service.CompleteActiveRoute(context.Background(), userIdWrapper.UserId)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to complete route"})
+		return
+	}
+	c.JSON(http.StatusOK, "nice")
 }

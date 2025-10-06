@@ -19,6 +19,8 @@ type Position struct {
 	Lat       float64   `db:"lat" json:"lat"`
 	Lng       float64   `db:"lng" json:"lng"`
 	UpdatedAt time.Time `db:"updated_at" json:"updatedAt"`
+	Weight    float64   `json:"weight"`
+	Timestamp int64     `json:"timestamp"`
 }
 
 // Upsert latest position into PostGIS

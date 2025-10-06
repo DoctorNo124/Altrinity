@@ -12,7 +12,8 @@ import (
 )
 
 type VolunteerService struct {
-	Repo *repositories.VolunteerRepository // Wraps Postgres and Redis connections
+	Repo      *repositories.VolunteerRepository // Wraps Postgres and Redis connections
+	RouteRepo *repositories.RouteRepo
 }
 
 // Position update threshold logic
@@ -68,4 +69,12 @@ func haversine(lat1, lon1, lat2, lon2 float64) float64 {
 
 func (s *VolunteerService) GetAllPositions(ctx context.Context) ([]repositories.Position, error) {
 	return s.Repo.GetAllPositions(ctx)
+}
+
+func (s *VolunteerService) AppendPositionToRoute(ctx context.Context, userID string, lat, lng float64) error {
+	return s.RouteRepo.AppendPositionToRedis(ctx, userID, lat, lng)
+}
+
+func (s *VolunteerService) CompleteActiveRoute(ctx context.Context, userID string) error {
+	return s.RouteRepo.FinalizeRoute(ctx, userID)
 }

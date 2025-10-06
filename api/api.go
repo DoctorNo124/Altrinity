@@ -66,7 +66,8 @@ func main() {
 	})
 
 	volRepo := &repositories.VolunteerRepository{DB: db, Redis: redisClient}
-	volService := &services.VolunteerService{Repo: volRepo}
+	routeRepo := &repositories.RouteRepo{DB: db, Redis: redisClient}
+	volService := &services.VolunteerService{Repo: volRepo, RouteRepo: routeRepo}
 	volController := &controllers.VolunteerController{Service: volService}
 
 	api := r.Group("/api")
@@ -84,7 +85,9 @@ func main() {
 		})
 		api.POST("/positions", middleware.AuthMiddleware("volunteer"), volController.UpdatePosition)
 		api.GET("/positions", middleware.AuthMiddleware("admin"), volController.GetPositions)
+		api.GET("/route/positions", middleware.AuthMiddleware("admin"), volController.GetRoutePositions)
 		api.GET("/ws/positions", volController.StreamPositions)
+		api.POST("/route/complete", middleware.AuthMiddleware("volunteer"), volController.CompleteRoute)
 	}
 
 	r.Run("0.0.0.0:8081")
