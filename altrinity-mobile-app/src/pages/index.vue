@@ -9,8 +9,5 @@
 </script>
 
 <style>
-.big-image {
-  width: 200%;   /* 3x the original width */
-  height: auto;
-}
+
 </style>

@@ -1,54 +1,52 @@
+;(window as any).cordova = undefined;
+;(window as any).Cordova = undefined;
+console.log('[Startup] Cordova cleared:', (window as any).cordova, (window as any).Cordova)
+
 import { createApp } from 'vue'
-import Keycloak from 'keycloak-js'
+
+
+import * as KeycloakModule from 'keycloak-js';
+console.log('[DEBUG] Raw keycloak-js module:', KeycloakModule);
 import App from './App.vue'
-// Vuetify
 import 'vuetify/styles'
-import { createVuetify } from 'vuetify'
-import * as components from 'vuetify/components'
-import * as directives from 'vuetify/directives'
 import { registerPlugins } from '@/plugins'
-// Styles
 import 'unfonts.css'
-import { setKeycloak } from './router'
 import 'leaflet/dist/leaflet.css'
+import { useAppUrlOpenListener } from './composables/useAppUrlOpenListener'
+import { Capacitor } from '@capacitor/core'
 
-// Define a Keycloak type (keycloak-js has partial typing support)
-let keycloak = new Keycloak({
-  url: import.meta.env.VITE_KEYCLOAK_URL,   // Keycloak base URL
-  realm: import.meta.env.VITE_KEYCLOAK_REALM,                // your realm
-  clientId: import.meta.env.VITE_KEYCLOAK_CLIENT_ID,       // frontend client
-})
+const Keycloak = (KeycloakModule as any).default; // <-- unwrap the real constructor
 
-const vuetify = createVuetify({
-  components,
-  directives,
-})
+const keycloak = new Keycloak({
+  url: import.meta.env.VITE_KEYCLOAK_URL,
+  realm: import.meta.env.VITE_KEYCLOAK_REALM,
+  clientId: 'altrinity-mobile',
+});
 
-keycloak.init(
-  { 
-    onLoad: 'login-required',
-  }).then((authenticated) => {
-  setKeycloak(keycloak)
-  if (!authenticated) {
-    window.location.reload()
-  } else {
-    console.log('Authenticated ✅')
+async function initApp() {
+  try {
+    console.log('[INITAPP] starting...');
+    console.log('[Secure Context?]', window.isSecureContext);
+    console.log('[Location]', window.location.origin);
+
+    const authenticated = await keycloak.init({
+      adapter: 'default',           // 👈  override Cordova mode
+      pkceMethod: false,            // avoid secure-context crypto issues
+      checkLoginIframe: false,
+      enableLogging: true,
+    })
+    console.log('pee pee poop poop')
+    const { registerAppUrlListener } = useAppUrlOpenListener();
+    registerAppUrlListener(keycloak);
 
     const app = createApp(App);
-    registerPlugins(app)
-
-    // provide keycloak instance to all components
-    app.provide('keycloak', keycloak)
-
-    app.mount('#app')
+    registerPlugins(app);
+    app.provide('keycloak', keycloak);
+    app.mount('#app');
+    console.log('[INITAPP] app mounted');
+  } catch (err) {
+    console.error(err);
   }
+}
 
-  // Optionally refresh token periodically
-  setInterval(() => {
-    keycloak.updateToken(60).catch(() => {
-      console.error('Failed to refresh token')
-    })
-  }, 6000)
-}).catch((err) => {
-  console.error('Keycloak init error:', err)
-})
+initApp()
