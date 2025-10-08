@@ -1,96 +1,189 @@
-<template>
-  <v-container fluid>
-    <h2>Your Canvassing Map</h2>
-    <div id="map" style="height: 80vh;"></div>
-    <v-btn @click="startRecording" class="mr-2">Start Recording Route</v-btn>
-    <v-btn @click="stopRecording">Stop Recvording Route</v-btn>
-  </v-container>
-</template>
-
-<script lang="ts" setup>
-import { onMounted, ref } from 'vue';
-import L, { Map as LeafletMap} from 'leaflet'
-import Keycloak from 'keycloak-js'
+<script setup lang="ts">
+import { ref, onMounted, onUnmounted } from 'vue'
 import { Geolocation, type Position } from '@capacitor/geolocation'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
+import { startWatch, clearWatch } from '@/services/geolocation'
+// ✅ Fix default marker paths (Vite can't auto-resolve them)
+import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
+import markerIcon from 'leaflet/dist/images/marker-icon.png'
+import markerShadow from 'leaflet/dist/images/marker-shadow.png'
+import { useAuthStore } from '@/stores/auth'
 
-const keycloak = inject<Keycloak>('keycloak');
-const map = ref<LeafletMap>();
-const marker = ref<L.Marker | null>(null);
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: markerIcon2x,
+  iconUrl: markerIcon,
+  shadowUrl: markerShadow,
+})
 
-let watchId: string | null = null
+const authStore = useAuthStore();
+const map = ref<L.Map>()
+const routePoints = ref<{ lat: number; lng: number; timestamp: number }[]>([])
+const marker = ref<L.Marker | null>(null)
+const watchId = ref<string | number | null>(null)
+const recording = ref(false)
+const routeLayers = ref<L.LayerGroup<L.Polyline<any>>>()
+const hasCenteredOnce = ref(false) // prevents re-centering every GPS update
 
-async function startRecording() {
-  // Request permissions first
-  const perm = await Geolocation.requestPermissions()
-  if (perm.location === 'denied') {
-    alert('Location access denied. Please enable it in settings.')
-    return
+
+async function initMap() {
+  // Initial placeholder position (center on 0,0 until we have a fix)
+  map.value = L.map('map').setView([0, 0], 2)
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map.value)
+  routeLayers.value = L.layerGroup<L.Polyline<any>>().addTo(map.value)
+
+  // Ask for permission and start live tracking
+  await Geolocation.requestPermissions()
+  startLocationWatcher()
+}
+
+async function startLocationWatcher() {
+  watchId.value = await startWatch(pos => {
+    updateCurrentMarker(pos)
+    if (recording.value) recordRoutePoint(pos)
+  })
+}
+
+function updateCurrentMarker(pos: Position) {
+  const { latitude, longitude, accuracy } = pos.coords
+  if (!map.value) return
+
+  // Create or move marker
+  if (!marker.value) {
+    marker.value = L.marker([latitude, longitude]).addTo(map.value).bindPopup('You are here')
+  } else {
+    marker.value.setLatLng([latitude, longitude])
   }
 
-  // Start watching
-  watchId = await Geolocation.watchPosition(
-    { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 },
-    async (pos: Position | null, err?: any) => {
-      if (err) {
-        console.error('Geolocation error:', err)
-        return
-      }
-      if (!pos) return
+  // Center map the first time we get a valid GPS fix
+  if (!hasCenteredOnce.value) {
+    map.value.setView([latitude, longitude], 16) // zoom 16 ~ street level
+    hasCenteredOnce.value = true
+  }
+}
 
-      const { latitude: lat, longitude: lng, accuracy } = pos.coords
-      if (accuracy > 30) return
+function recordRoutePoint(pos: Position) {
+  const { latitude, longitude, accuracy } = pos.coords
+  if (accuracy > 30) return
+  const timestamp = Date.now()
+  routePoints.value.push({ lat: latitude, lng: longitude, timestamp })
+  redrawRoute()
+}
 
-      // Update map marker
-      if (marker.value) marker.value.setLatLng([lat, lng])
-      else marker.value = L.marker([lat, lng])
-        .addTo(map.value!)
-        .bindPopup('You are here')
+function redrawRoute() {
+  if (!map.value || routePoints.value.length < 2) return
+  routeLayers.value?.clearLayers()
 
-      // Send location to backend
-      try {
-        if (keycloak) {
-          await fetch(`${import.meta.env.VITE_API_BASE}/positions`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${keycloak.token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ lat, lng }),
-          })
-        }
-      } catch (e) {
-        console.error('Failed to send position', e)
-      }
-    }
-  )
+  const coords = routePoints.value.map(p => [p.lat, p.lng])
+  const durations = calcDurations(routePoints.value)
+  const segments = colorSegments(coords, durations)
+  segments.forEach(seg => L.polyline(seg.coords, { color: seg.color, weight: 5 }).addTo(routeLayers.value!))
+}
+
+function calcDurations(points: any[]) {
+  const durations: number[] = []
+  for (let i = 0; i < points.length - 1; i++) {
+    const timeSpent = points[i + 1].timestamp - points[i].timestamp
+    durations.push(timeSpent)
+  }
+  return durations
+}
+
+function colorSegments(coords: any[], durations: number[]) {
+  const max = Math.max(...durations)
+  const min = Math.min(...durations)
+  const segments = []
+  for (let i = 0; i < coords.length - 1; i++) {
+    const t = (durations[i]! - min) / (max - min || 1)
+    const color = `hsl(${240 - 240 * t}, 100%, 50%)` // blue→red gradient
+    segments.push({ coords: [coords[i], coords[i + 1]], color })
+  }
+  return segments
+}
+
+function startRecording() {
+  if (recording.value) return
+  recording.value = true
+  routePoints.value = []
 }
 
 async function stopRecording() {
-  if (watchId) {
-    Geolocation.clearWatch({ id: watchId })
-    watchId = null
-    try {
-      if(keycloak && keycloak.tokenParsed) { 
-        await fetch(`${import.meta.env.VITE_API_BASE}/route/complete`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${keycloak.token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ userId: keycloak.tokenParsed["user_id"] }),
-        });
-      }
-    } catch (e) {
-      console.error('Failed to complete route', e);
-    }
+  if (!recording.value) return
+  recording.value = false
+  await uploadRoute()
+}
+
+async function uploadRoute() {
+  const data = routePoints.value.map(p => ({
+    lat: p.lat,
+    lng: p.lng,
+    timestamp: p.timestamp
+  }))
+
+  try {
+    const res = await fetch(`${import.meta.env.VITE_API_BASE}/routes`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authStore.token}`,
+      },
+      body: JSON.stringify({ user_id: 'current-user-id', route: data })
+    })
+    if (!res.ok) throw new Error(await res.text())
+    alert('Route uploaded successfully!')
+  } catch (err) {
+    console.error('Upload failed:', err)
+    alert('Upload failed — check network or token.')
   }
 }
 
+onMounted(() => {
+  setTimeout(initMap, 0)
+})
 
-onMounted(async () => {
-  map.value = L.map('map').setView([40.0, -83.0], 13);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors',
-  }).addTo(map.value);
-});
+onUnmounted(async () => {
+  if (watchId.value) await clearWatch(watchId.value)
+})
 </script>
+
+<template>
+  <div id="map-container">
+    <div id="map"></div>
+    <div class="controls">
+      <v-btn color="primary" @click="startRecording" :disabled="recording">
+        Start Recording
+      </v-btn>
+      <v-btn color="red" @click="stopRecording" :disabled="!recording">
+        Stop Recording
+      </v-btn>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+#map-container {
+  position: relative;
+  height: 100vh;
+  display: flex; 
+  justify-content: center;
+  align-items: center;
+}
+
+#map {
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+}
+
+.leaflet-container {
+  z-index: 0 !important;
+}
+
+.controls {
+  position: absolute;
+  bottom: 17vh;
+  z-index: 9999;
+  display: flex;
+  gap: 16px;
+}
+</style>
