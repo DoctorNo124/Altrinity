@@ -37,7 +37,12 @@ func main() {
 
 	r := gin.Default()
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"https://app.altrinitytech.com", "http://localhost:3000"},
+		AllowOriginFunc: func(origin string) bool {
+			// Allow all local & capacitor origins
+			return origin == "capacitor://localhost" ||
+				origin == "https://app.altrinitytech.com" ||
+				origin == "http://localhost:3000"
+		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Authorization", "Content-Type"},
 		ExposeHeaders:    []string{"Content-Length"},
@@ -67,8 +72,10 @@ func main() {
 
 	volRepo := &repositories.VolunteerRepository{DB: db, Redis: redisClient}
 	routeRepo := &repositories.RouteRepo{DB: db, Redis: redisClient}
+	routeService := services.NewRouteService(*routeRepo)
 	volService := &services.VolunteerService{Repo: volRepo, RouteRepo: routeRepo}
 	volController := &controllers.VolunteerController{Service: volService}
+	routeController := controllers.NewRouteController(routeService)
 
 	api := r.Group("/api")
 	{
@@ -88,6 +95,8 @@ func main() {
 		api.GET("/route/positions", middleware.AuthMiddleware("admin"), volController.GetRoutePositions)
 		api.GET("/ws/positions", volController.StreamPositions)
 		api.POST("/route/complete", middleware.AuthMiddleware("volunteer"), volController.CompleteRoute)
+		api.POST("/routes", middleware.AuthMiddleware("volunteer"), routeController.SaveRoute)        // authenticated user saves own route
+		api.GET("/routes/:userID", middleware.AuthMiddleware("admin"), routeController.GetUserRoutes) // admin or supervisor fetches a user's route
 	}
 
 	r.Run("0.0.0.0:8081")

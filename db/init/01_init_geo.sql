@@ -33,3 +33,10 @@ CREATE TABLE IF NOT EXISTS volunteer_positions
     CONSTRAINT unique_volunteer_id UNIQUE (volunteer_id)
         INCLUDE(volunteer_id)
 )
+
+CREATE TABLE IF NOT EXISTS routes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  points jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);

@@ -1,6 +1,7 @@
 package repositories
 
 import (
+	"altrinity/api/models"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,12 +10,39 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 )
 
 type RouteRepo struct {
 	DB    *sqlx.DB
 	Redis *redis.Client
+}
+
+func (r *RouteRepo) Create(ctx context.Context, route *models.Route) error {
+	query := `
+		INSERT INTO routes (id, user_id, points, created_at)
+		VALUES ($1, $2, $3::jsonb, $4)
+	`
+	_, err := r.DB.ExecContext(ctx, query,
+		route.ID,
+		route.UserID,
+		route.Points,
+		time.Now(),
+	)
+	return err
+}
+
+func (r *RouteRepo) GetByUser(ctx context.Context, userID uuid.UUID) ([]models.Route, error) {
+	query := `
+		SELECT id, user_id, points, created_at
+		FROM routes
+		WHERE user_id = $1
+		ORDER BY created_at DESC
+	`
+	var routes []models.Route
+	err := r.DB.SelectContext(ctx, &routes, query, userID)
+	return routes, err
 }
 
 func (r *RouteRepo) AppendPositionToRedis(ctx context.Context, userID string, lat, lng float64) error {
