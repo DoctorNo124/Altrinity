@@ -1,5 +1,5 @@
-import { App, type URLOpenListenerEvent } from '@capacitor/app'
-import { useRouter, useRoute } from 'vue-router'
+import { App } from '@capacitor/app'
+import { useRouter } from 'vue-router'
 import Keycloak from 'keycloak-js'
 import { Browser } from '@capacitor/browser'
 import qs from 'qs';
@@ -91,12 +91,14 @@ export function useAppUrlOpenListener() {
           url.host === 'logout' ||
           event.url.startsWith('altrinity://logout')
         ) {
+          const router = useRouter();
           console.log('[Deep link → logout detected]')
           keycloak.token = undefined
           keycloak.refreshToken = undefined
           keycloak.idToken = undefined
           keycloak.authenticated = false
           auth.clear()
+          await router.push('/')
           await openLogin(keycloak)
           return
         }
