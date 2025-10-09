@@ -41,7 +41,8 @@ func main() {
 			// Allow all local & capacitor origins
 			return origin == "capacitor://localhost" ||
 				origin == "https://app.altrinitytech.com" ||
-				origin == "http://localhost:3000"
+				origin == "http://localhost:3000" ||
+				origin == "https://localhost"
 		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Authorization", "Content-Type"},

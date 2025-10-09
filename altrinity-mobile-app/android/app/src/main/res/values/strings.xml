@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Altrinity</string>
+    <string name="title_activity_main">Altrinity</string>
+    <string name="package_name">com.altrinity.app</string>
+    <string name="custom_url_scheme">com.altrinity.app</string>
+</resources>

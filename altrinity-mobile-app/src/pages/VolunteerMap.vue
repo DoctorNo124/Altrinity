@@ -235,7 +235,6 @@ onUnmounted(async () => {
 #map-container {
   position: relative;
   height: 100%;
-  padding-top: 10px;
 }
 
 #map {

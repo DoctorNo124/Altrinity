@@ -36,10 +36,7 @@
       <v-btn v-else @click="openLogin(keycloak!)">Login</v-btn>
     </v-app-bar>
 
-    <!-- Main content -->
-    <v-main>
-      <router-view />
-    </v-main>
+    <router-view />
   </v-app>
 </template>
 
@@ -88,15 +85,16 @@ onMounted(async () => {
 
 <style>
 .v-main {
-  height: calc(100vh - 64px);
+  /* subtract app bar height from viewport */
+  height: 100vh;
   overflow: hidden;
+
+  /* ✅ combine fallback + iOS safe area */
+  padding-top: calc(var(--v-layout-top) + max(env(safe-area-inset-top, 0px), 8px)) !important;
 }
 
 .v-app-bar {
-  padding-top: env(safe-area-inset-top);
-}
-
-.v-main {
-  padding-top: env(safe-area-inset-top);
+  /* ✅ top notch-safe padding (iOS) + fallback */
+  padding-top: max(env(safe-area-inset-top, 0px), 8px);
 }
 </style>
