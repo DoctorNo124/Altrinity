@@ -3,7 +3,9 @@ package repositories
 import (
 	"altrinity/api/models"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -43,6 +45,44 @@ func (r *RouteRepo) GetByUser(ctx context.Context, userID uuid.UUID) ([]models.R
 	var routes []models.Route
 	err := r.DB.SelectContext(ctx, &routes, query, userID)
 	return routes, err
+}
+
+func (r *RouteRepo) GetLatestByUser(ctx context.Context, userID uuid.UUID) (*models.Route, error) {
+	query := `
+		SELECT id, user_id, points, created_at
+		FROM routes
+		WHERE user_id = $1
+		ORDER BY created_at DESC
+		LIMIT 1
+	`
+	var route models.Route
+	err := r.DB.GetContext(ctx, &route, query, userID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &route, nil
+}
+
+func (r *RouteRepo) GetById(ctx context.Context, id uuid.UUID) (*models.Route, error) {
+	query := `
+		SELECT id, user_id, points, created_at
+		FROM routes
+		WHERE id = $1
+		ORDER BY created_at DESC
+		LIMIT 1
+	`
+	var route models.Route
+	err := r.DB.GetContext(ctx, &route, query, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &route, nil
 }
 
 func (r *RouteRepo) AppendPositionToRedis(ctx context.Context, userID string, lat, lng float64) error {

@@ -22,7 +22,10 @@ declare module 'vue-router/auto-routes' {
     '/Admin': RouteRecordInfo<'/Admin', '/Admin', Record<never, never>, Record<never, never>>,
     '/CommandHub': RouteRecordInfo<'/CommandHub', '/CommandHub', Record<never, never>, Record<never, never>>,
     '/PendingApproval': RouteRecordInfo<'/PendingApproval', '/PendingApproval', Record<never, never>, Record<never, never>>,
+    '/UserRoutes/[id]': RouteRecordInfo<'/UserRoutes/[id]', '/UserRoutes/:id', { id: ParamValue<true> }, { id: ParamValue<false> }>,
     '/VolunteerMap': RouteRecordInfo<'/VolunteerMap', '/VolunteerMap', Record<never, never>, Record<never, never>>,
+    '/VolunteerRoute/[routeId]': RouteRecordInfo<'/VolunteerRoute/[routeId]', '/VolunteerRoute/:routeId', { routeId: ParamValue<true> }, { routeId: ParamValue<false> }>,
+    '/VolunteerRoute/[userId]': RouteRecordInfo<'/VolunteerRoute/[userId]', '/VolunteerRoute/:userId', { userId: ParamValue<true> }, { userId: ParamValue<false> }>,
   }
 
   /**
@@ -52,8 +55,20 @@ declare module 'vue-router/auto-routes' {
       routes: '/PendingApproval'
       views: never
     }
+    'src/pages/UserRoutes/[id].vue': {
+      routes: '/UserRoutes/[id]'
+      views: never
+    }
     'src/pages/VolunteerMap.vue': {
       routes: '/VolunteerMap'
+      views: never
+    }
+    'src/pages/VolunteerRoute/[routeId].vue': {
+      routes: '/VolunteerRoute/[routeId]'
+      views: never
+    }
+    'src/pages/VolunteerRoute/[userId].vue': {
+      routes: '/VolunteerRoute/[userId]'
       views: never
     }
   }

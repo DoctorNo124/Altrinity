@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, inject } from 'vue'
+import { useRouter } from 'vue-router/auto'
 import type Keycloak from 'keycloak-js'
 
 const keycloak = inject<Keycloak>('keycloak')
+const router = useRouter()
+
 interface User {
   id: string
   username: string
@@ -13,7 +16,6 @@ interface User {
 const users = ref<User[]>([])
 const loading = ref(false)
 
-// Fetch users from Go API
 async function fetchUsers() {
   loading.value = true
   try {
@@ -22,7 +24,11 @@ async function fetchUsers() {
         Authorization: `Bearer ${keycloak?.token}`,
       },
     })
-    users.value = await res.json()
+    const data = await res.json()
+    // ✅ Filter to show only volunteers
+    users.value = data.filter((u: User) => !u.roles.includes('admin'))
+  } catch (err) {
+    console.error('Failed to fetch users:', err)
   } finally {
     loading.value = false
   }
@@ -41,32 +47,47 @@ async function approveUser(user: User) {
   await fetchUsers()
 }
 
+function goToVolunteerRoute(user: User) {
+  router.push({
+    name: '/VolunteerRoute/[userId]',
+    params: { userId: user.id },
+  })
+}
+
+function goToUserRoutes(user: User) {
+  router.push({
+    name: '/UserRoutes/[id]',
+    params: { id: user.id },
+  })
+}
+
+
+
 onMounted(fetchUsers)
 </script>
 
 <template>
-  <v-data-table
-    :items="users"
-    :loading="loading"
-    :headers="[
-      { title: 'Username', key: 'username' },
-      { title: 'Email', key: 'email' },
-      { title: 'Roles', key: 'roles' },
-      { title: 'Actions', key: 'actions', sortable: false }
-    ]"
-  >
-    <template #item.roles="{ item }">
-      {{ item.roles.join(', ') }}
-    </template>
-
-    <template #item.actions="{ item }">
-      <v-btn
-        v-if="item.roles.includes('pending')"
-        color="primary"
-        @click="approveUser(item)"
-      >
-        Approve
-      </v-btn>
-    </template>
-  </v-data-table>
+  <v-container>
+    <v-data-table
+      :items="users"
+      :loading="loading"
+      :headers="[
+        { title: 'Username', key: 'username' },
+        { title: 'Email', key: 'email' },
+        { title: 'Actions', key: 'actions', sortable: false }
+      ]"
+    >
+      <template #item.actions="{ item }">
+        <v-btn v-if="!item.roles.includes('volunteer')" class="mr-2" color="primary" @click="approveUser(item)">
+          Approve User
+        </v-btn>
+        <v-btn class="mr-2" color="primary" @click="goToVolunteerRoute(item)">
+          View Latest Route
+        </v-btn>
+        <v-btn color="primary" @click="goToUserRoutes(item)">
+          View All Routes
+        </v-btn>
+      </template>
+    </v-data-table>
+  </v-container>
 </template>

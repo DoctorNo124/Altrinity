@@ -95,8 +95,10 @@ func main() {
 		api.GET("/route/positions", middleware.AuthMiddleware("admin"), volController.GetRoutePositions)
 		api.GET("/ws/positions", volController.StreamPositions)
 		api.POST("/route/complete", middleware.AuthMiddleware("volunteer"), volController.CompleteRoute)
-		api.POST("/routes", middleware.AuthMiddleware("volunteer"), routeController.SaveRoute)        // authenticated user saves own route
-		api.GET("/routes/:userID", middleware.AuthMiddleware("admin"), routeController.GetUserRoutes) // admin or supervisor fetches a user's route
+		api.POST("/routes", middleware.AuthMiddleware("volunteer"), routeController.SaveRoute)                   // authenticated user saves own route
+		api.GET("/routes/:userID", middleware.AuthMiddleware("admin"), routeController.GetUserRoutes)            // admin or supervisor fetches a user's route
+		api.GET("/latest-route/:userID", middleware.AuthMiddleware("admin"), routeController.GetLatestUserRoute) // admin or supervisor fetches a user's route
+		api.GET("/route/:id", middleware.AuthMiddleware("admin"), routeController.GetById)
 	}
 
 	r.Run("0.0.0.0:8081")

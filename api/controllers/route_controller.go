@@ -63,3 +63,27 @@ func (ctrl *RouteController) GetUserRoutes(c *gin.Context) {
 
 	c.JSON(http.StatusOK, routes)
 }
+
+func (ctrl *RouteController) GetLatestUserRoute(c *gin.Context) {
+	userID := c.Param("userID")
+
+	route, err := ctrl.service.GetLatestUserRoute(c, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, route)
+}
+
+func (ctrl *RouteController) GetById(c *gin.Context) {
+	id := c.Param("id")
+
+	route, err := ctrl.service.GetById(c, id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, route)
+}

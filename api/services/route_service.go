@@ -3,9 +3,11 @@ package services
 import (
 	"altrinity/api/models"
 	"altrinity/api/repositories"
+	"altrinity/api/utils"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,6 +16,8 @@ import (
 type RouteService interface {
 	SaveRoute(ctx context.Context, userID string, points []models.RoutePoint) error
 	GetUserRoutes(ctx context.Context, userID string) ([]models.Route, error)
+	GetLatestUserRoute(ctx context.Context, userID string) (*models.Route, error)
+	GetById(ctx context.Context, id string) (*models.Route, error)
 }
 
 type routeService struct {
@@ -29,17 +33,7 @@ func (s *routeService) SaveRoute(ctx context.Context, userID string, points []mo
 		return errors.New("not enough points")
 	}
 
-	processed := []map[string]interface{}{}
-	for i := 0; i < len(points)-1; i++ {
-		dur := points[i+1].Timestamp - points[i].Timestamp
-		processed = append(processed, map[string]interface{}{
-			"lat":      points[i].Lat,
-			"lng":      points[i].Lng,
-			"duration": dur,
-		})
-	}
-
-	data, err := json.Marshal(processed)
+	data, err := json.Marshal(points)
 	if err != nil {
 		return err
 	}
@@ -59,10 +53,59 @@ func (s *routeService) SaveRoute(ctx context.Context, userID string, points []mo
 	return s.repo.Create(ctx, route)
 }
 
+// ✅ Returns all routes for a user, with parsed Points.
 func (s *routeService) GetUserRoutes(ctx context.Context, userID string) ([]models.Route, error) {
 	uuidParsed, err := uuid.Parse(userID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid user ID: %w", err)
 	}
-	return s.repo.GetByUser(ctx, uuidParsed)
+
+	routes, err := s.repo.GetByUser(ctx, uuidParsed)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch routes: %w", err)
+	}
+
+	for i := range routes {
+		routes[i].PointsParsed = utils.ParseRoutePoints(routes[i].Points)
+	}
+
+	return routes, nil
+}
+
+// ✅ Returns the most recent route for a user, or nil if none.
+func (s *routeService) GetLatestUserRoute(ctx context.Context, userID string) (*models.Route, error) {
+	uuidParsed, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user ID: %w", err)
+	}
+
+	route, err := s.repo.GetLatestByUser(ctx, uuidParsed)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch latest route: %w", err)
+	}
+	if route == nil {
+		return nil, nil
+	}
+
+	route.PointsParsed = utils.ParseRoutePoints(route.Points)
+	return route, nil
+}
+
+// ✅ Returns the most recent route for a user, or nil if none.
+func (s *routeService) GetById(ctx context.Context, id string) (*models.Route, error) {
+	uuidParsed, err := uuid.Parse(id)
+	if err != nil {
+		return nil, fmt.Errorf("invalid route ID: %w", err)
+	}
+
+	route, err := s.repo.GetById(ctx, uuidParsed)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch route by Id: %w", err)
+	}
+	if route == nil {
+		return nil, nil
+	}
+
+	route.PointsParsed = utils.ParseRoutePoints(route.Points)
+	return route, nil
 }
