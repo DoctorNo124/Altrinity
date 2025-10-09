@@ -9,10 +9,6 @@
       </v-btn>
 
       <v-btn v-if="roles.includes('admin')">
-        <router-link to="/CommandHub">Command Hub</router-link>
-      </v-btn>
-
-      <v-btn v-if="roles.includes('admin')">
         <router-link to="/Admin">Admin</router-link>
       </v-btn>
 
