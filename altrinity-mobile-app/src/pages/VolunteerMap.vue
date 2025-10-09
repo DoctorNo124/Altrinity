@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
-import { Geolocation, type Position } from '@capacitor/geolocation'
+import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { startWatch, clearWatch } from '@/services/geolocation'
-// ✅ Fix default marker paths (Vite can't auto-resolve them)
+import 'leaflet.offline'
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
 import markerIcon from 'leaflet/dist/images/marker-icon.png'
 import markerShadow from 'leaflet/dist/images/marker-shadow.png'
+import { startWatch, clearWatch, getCurrentPosition } from '@/services/geolocation'
 import { useAuthStore } from '@/stores/auth'
+import { useRouteQueue } from '@/composables/useRouteQueue'
+import type { Position } from '@capacitor/geolocation'
 
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: markerIcon2x,
@@ -16,27 +17,65 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 })
 
-const authStore = useAuthStore();
+const auth = useAuthStore()
+const { enqueue, offlineCount, flushQueue } = useRouteQueue()
+
 const map = ref<L.Map>()
-const routePoints = ref<{ lat: number; lng: number; timestamp: number }[]>([])
+const routePoints = ref<{ lat: number; lng: number; timestamp: number; duration: number }[]>([])
 const marker = ref<L.Marker | null>(null)
 const watchId = ref<string | number | null>(null)
 const recording = ref(false)
 const routeLayers = ref<L.LayerGroup<L.Polyline<any>>>()
-const hasCenteredOnce = ref(false) // prevents re-centering every GPS update
+const hasCenteredOnce = ref(false)
 
-
+/* ---------------------------
+   🗺️ MAP INITIALIZATION
+--------------------------- */
 async function initMap() {
-  // Initial placeholder position (center on 0,0 until we have a fix)
-  map.value = L.map('map').setView([0, 0], 2)
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map.value)
+  let pos: Position | null = null
+  try {
+    pos = await getCurrentPosition()
+    console.log('📍 Initial position', pos.coords.latitude, pos.coords.longitude)
+  } catch (err) {
+    console.warn('⚠️ Could not get initial position, defaulting to SF:', err)
+  }
+
+  const lat = pos?.coords.latitude ?? 37.7858
+  const lng = pos?.coords.longitude ?? -122.4064
+  const zoom = 16
+
+  map.value = L.map('map', { zoomControl: false }).setView([lat, lng], zoom)
+
+  const tileLayer = (L as any).tileLayer.offline(
+    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    {
+      subdomains: 'abc',
+      minZoom: 3,
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors',
+    }
+  )
+  tileLayer.addTo(map.value)
   routeLayers.value = L.layerGroup<L.Polyline<any>>().addTo(map.value)
 
-  // Ask for permission and start live tracking
-  await Geolocation.requestPermissions()
-  startLocationWatcher()
+  tileLayer.on('storagesize', (e: any) =>
+    console.log('🧱 Tile cache size:', e.storagesize)
+  )
+
+  await nextTick()
+  map.value.invalidateSize()
+
+  if (pos) {
+    updateCurrentMarker(pos)
+    hasCenteredOnce.value = true
+  }
+
+  await startLocationWatcher()
 }
 
+/* ---------------------------
+   📡 GEOLOCATION WATCHER
+--------------------------- */
 async function startLocationWatcher() {
   watchId.value = await startWatch(pos => {
     updateCurrentMarker(pos)
@@ -45,102 +84,127 @@ async function startLocationWatcher() {
 }
 
 function updateCurrentMarker(pos: Position) {
-  const { latitude, longitude, accuracy } = pos.coords
+  const { latitude, longitude } = pos.coords
   if (!map.value) return
 
-  // Create or move marker
   if (!marker.value) {
-    marker.value = L.marker([latitude, longitude]).addTo(map.value).bindPopup('You are here')
+    marker.value = L.marker([latitude, longitude])
+      .addTo(map.value)
+      .bindPopup('You are here')
   } else {
     marker.value.setLatLng([latitude, longitude])
   }
 
-  // Center map the first time we get a valid GPS fix
   if (!hasCenteredOnce.value) {
-    map.value.setView([latitude, longitude], 16) // zoom 16 ~ street level
+    map.value.setView([latitude, longitude], 16)
+    map.value.invalidateSize()
     hasCenteredOnce.value = true
   }
 }
 
+/* ---------------------------
+   🎯 RECORDING POINTS
+--------------------------- */
 function recordRoutePoint(pos: Position) {
   const { latitude, longitude, accuracy } = pos.coords
   if (accuracy > 30) return
+
   const timestamp = Date.now()
-  routePoints.value.push({ lat: latitude, lng: longitude, timestamp })
+  const last = routePoints.value[routePoints.value.length - 1];
+  const duration = last ? timestamp - last.timestamp : 0
+
+  routePoints.value.push({
+    lat: latitude,
+    lng: longitude,
+    timestamp,
+    duration,
+  })
+
+  console.log(`📍 Recorded point (${latitude}, ${longitude}) duration=${duration}ms`)
   redrawRoute()
 }
 
+/* ---------------------------
+   🎨 REDRAW HEATMAP ROUTE
+--------------------------- */
 function redrawRoute() {
   if (!map.value || routePoints.value.length < 2) return
   routeLayers.value?.clearLayers()
 
-  const coords = routePoints.value.map(p => [p.lat, p.lng])
-  const durations = calcDurations(routePoints.value)
-  const segments = colorSegments(coords, durations)
-  segments.forEach(seg => L.polyline(seg.coords, { color: seg.color, weight: 5 }).addTo(routeLayers.value!))
-}
-
-function calcDurations(points: any[]) {
-  const durations: number[] = []
-  for (let i = 0; i < points.length - 1; i++) {
-    const timeSpent = points[i + 1].timestamp - points[i].timestamp
-    durations.push(timeSpent)
-  }
-  return durations
-}
-
-function colorSegments(coords: any[], durations: number[]) {
+  const coords = routePoints.value.map(p => [p.lat, p.lng] as [number,number])
+  const durations = routePoints.value.map(p => p.duration)
   const max = Math.max(...durations)
   const min = Math.min(...durations)
-  const segments = []
+
   for (let i = 0; i < coords.length - 1; i++) {
-    const t = (durations[i]! - min) / (max - min || 1)
-    const color = `hsl(${240 - 240 * t}, 100%, 50%)` // blue→red gradient
-    segments.push({ coords: [coords[i], coords[i + 1]], color })
+    const d = durations[i]
+    const t = (d! - min) / (max - min || 1)
+    const color = `hsl(${240 - 240 * t}, 100%, 50%)` // blue → red
+    L.polyline([coords[i]!, coords[i + 1]!], { color, weight: 5 }).addTo(routeLayers.value!)
   }
-  return segments
 }
 
+/* ---------------------------
+   ⏯️ START / STOP RECORDING
+--------------------------- */
 function startRecording() {
   if (recording.value) return
   recording.value = true
   routePoints.value = []
+  console.log('🎬 Recording started')
 }
 
 async function stopRecording() {
   if (!recording.value) return
   recording.value = false
-  await uploadRoute()
+
+  console.log('⏹️ Stopping recording...')
+  if (watchId.value) {
+    await clearWatch(watchId.value)
+    watchId.value = null
+  }
+
+  const snapshot = [...routePoints.value]
+  console.log(`📦 Final route length: ${snapshot.length} points`)
+
+  if (snapshot.length < 2) {
+    alert('⚠️ Not enough data points recorded.')
+    return
+  }
+
+  // ensure last point has 0 duration for clean JSON structure
+  snapshot[snapshot.length - 1]!.duration = 0
+  await uploadRoute(snapshot)
 }
 
-async function uploadRoute() {
-  const data = routePoints.value.map(p => ({
-    lat: p.lat,
-    lng: p.lng,
-    timestamp: p.timestamp
-  }))
-
+/* ---------------------------
+   ☁️ UPLOAD OR QUEUE ROUTE
+--------------------------- */
+async function uploadRoute(snapshot: { lat: number; lng: number; timestamp: number; duration: number }[]) {
   try {
     const res = await fetch(`${import.meta.env.VITE_API_BASE}/routes`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${authStore.token}`,
+        Authorization: `Bearer ${auth.token}`,
       },
-      body: JSON.stringify({ user_id: 'current-user-id', route: data })
+      body: JSON.stringify({ route: snapshot }),
     })
     if (!res.ok) throw new Error(await res.text())
-    alert('Route uploaded successfully!')
+    console.log('✅ Uploaded route successfully.')
+    alert('✅ Route uploaded successfully!')
+    await flushQueue()
   } catch (err) {
-    console.error('Upload failed:', err)
-    alert('Upload failed — check network or token.')
+    console.error('Upload failed, adding to offline queue:', err)
+    await enqueue({ route: snapshot, createdAt: Date.now() })
+    alert('⚠️ Offline — route saved locally!')
   }
 }
 
-onMounted(() => {
-  setTimeout(initMap, 0)
-})
-
+/* ---------------------------
+   🧹 LIFECYCLE HOOKS
+--------------------------- */
+onMounted(() => setTimeout(initMap, 0))
 onUnmounted(async () => {
   if (watchId.value) await clearWatch(watchId.value)
 })
@@ -149,6 +213,7 @@ onUnmounted(async () => {
 <template>
   <div id="map-container">
     <div id="map"></div>
+
     <div class="controls">
       <v-btn color="primary" @click="startRecording" :disabled="recording">
         Start Recording
@@ -157,33 +222,43 @@ onUnmounted(async () => {
         Stop Recording
       </v-btn>
     </div>
+
+    <div class="offline-indicator" v-if="offlineCount > 0">
+      <v-chip color="orange" text-color="white" label>
+        {{ offlineCount }} pending route<span v-if="offlineCount > 1">s</span>
+      </v-chip>
+    </div>
   </div>
 </template>
 
 <style scoped>
 #map-container {
   position: relative;
-  height: 100vh;
-  display: flex; 
-  justify-content: center;
-  align-items: center;
+  height: 100%;
+  padding-top: 10px;
 }
 
 #map {
   width: 100%;
   height: 100%;
   z-index: 0;
-}
-
-.leaflet-container {
-  z-index: 0 !important;
+  background: #c8d6e5;
 }
 
 .controls {
   position: absolute;
-  bottom: 17vh;
-  z-index: 9999;
+  bottom: 5vh;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
-  gap: 16px;
+  gap: 10px;
+  z-index: 9999;
+}
+
+.offline-indicator {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 9999;
 }
 </style>

@@ -11,6 +11,7 @@ export const useAuthStore = defineStore('auth', () => {
   // 🧠 Getters
   const roles = computed(() => tokenParsed.value?.realm_access?.roles || [])
   const username = computed(() => tokenParsed.value?.preferred_username || null)
+  const userId = computed(() => tokenParsed.value?.sub ?? '')
 
   // ⚙️ Actions
   function setToken(newToken: string, newRefreshToken?: string) {
@@ -46,6 +47,7 @@ export const useAuthStore = defineStore('auth', () => {
     // getters
     roles,
     username,
+    userId,
     // actions
     setToken,
     clear,

@@ -5,8 +5,9 @@ const USE_MOCK = true
 let mockActive = false
 let mockTimeout: ReturnType<typeof setTimeout> | null = null
 let lastMockId: string | number | null = null
+let lastMockPos: Position | null = null
 
-// Start somewhere nice (San Francisco)
+// 🌍 Start near downtown San Francisco
 const START_LAT = 37.7858
 const START_LNG = -122.4064
 
@@ -23,20 +24,21 @@ interface MockPosition extends Position {
   timestamp: number
 }
 
-// 🚶 Linear path direction — these define the “street”
-const DIRECTION_LAT_DELTA = 0.00005  // small drift north/south (~5m per step)
-const DIRECTION_LNG_DELTA = -0.00015 // west/east movement (~15m per step)
+// 🚶 Linear route pattern parameters
+const DIRECTION_LAT_DELTA = 0.00005 // ~5m per step north/south
+const DIRECTION_LNG_DELTA = -0.00015 // ~15m per step west/east
 
-// light side-to-side drift (GPS noise)
 function randomDrift() {
-  return (Math.random() - 0.5) * 0.00003 // ±3m sideways drift
+  return (Math.random() - 0.5) * 0.00003 // ±3m
 }
 
-// random delay to simulate different pause durations
 function randomDelay() {
-  return 1000 + Math.random() * 7000 // 1s – 8s
+  return 1000 + Math.random() * 7000 // 1s–8s
 }
 
+/**
+ * 🔄 Starts a continuous mock or real geolocation watcher.
+ */
 export async function startWatch(
   callback: (pos: Position) => void
 ): Promise<string | number | null> {
@@ -48,11 +50,8 @@ export async function startWatch(
     const emitNext = () => {
       if (!mockActive) return
 
-      // 70% chance to move
-      const shouldMove = Math.random() > 0.3
-
+      const shouldMove = Math.random() > 0.3 // sometimes pause
       if (shouldMove) {
-        // Move roughly in one direction, with some drift
         lat += DIRECTION_LAT_DELTA + randomDrift()
         lng += DIRECTION_LNG_DELTA + randomDrift()
       }
@@ -65,14 +64,15 @@ export async function startWatch(
           altitudeAccuracy: null,
           altitude: null,
           speed: shouldMove ? 1 + Math.random() : 0,
-          heading: shouldMove ? 270 : null, // roughly westbound
+          heading: shouldMove ? 270 : null, // roughly westward
         },
         timestamp: Date.now(),
       }
 
+      // 🔁 save latest mock
+      lastMockPos = fakePos
       callback(fakePos)
 
-      // Next position after random delay
       mockTimeout = setTimeout(emitNext, randomDelay())
     }
 
@@ -81,7 +81,7 @@ export async function startWatch(
     return lastMockId
   }
 
-  // Real native geolocation
+  // 📡 Real GPS mode
   const id = await Geolocation.watchPosition(
     { enableHighAccuracy: true },
     (pos, err) => {
@@ -89,8 +89,8 @@ export async function startWatch(
         console.error('Geolocation error:', err)
         return
       }
-      if (!pos) return
-      if (pos.coords.accuracy > 30) return
+      if (!pos || pos.coords.accuracy > 30) return
+      lastMockPos = pos
       callback(pos)
     }
   )
@@ -99,6 +99,9 @@ export async function startWatch(
   return id
 }
 
+/**
+ * ✅ Clears active watcher (mock or real)
+ */
 export async function clearWatch(id: string | number | null): Promise<void> {
   if (!id) return
   if (USE_MOCK && mockTimeout) {
@@ -110,4 +113,31 @@ export async function clearWatch(id: string | number | null): Promise<void> {
     await Geolocation.clearWatch({ id: id + '' })
     console.log('✅ Cleared real geolocation watcher')
   }
+}
+
+/**
+ * 📍 Unified getCurrentPosition — mock-aware
+ */
+export async function getCurrentPosition(): Promise<Position> {
+  if (USE_MOCK) {
+    if (lastMockPos) return lastMockPos
+
+    // fallback first fix
+    const fake: Position = {
+      coords: {
+        latitude: START_LAT,
+        longitude: START_LNG,
+        accuracy: 5,
+        altitudeAccuracy: null,
+        altitude: null,
+        speed: 0,
+        heading: null,
+      },
+      timestamp: Date.now(),
+    }
+    lastMockPos = fake
+    return fake
+  }
+
+  return await Geolocation.getCurrentPosition({ enableHighAccuracy: true })
 }
