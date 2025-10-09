@@ -1,14 +1,37 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, inject } from 'vue'
 import L, { type LatLngExpression } from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import type { RoutePoint } from '@/models/RoutePoint';
+import type { RoutePoint } from '@/models/RoutePoint'
+import type Keycloak from 'keycloak-js'
 
+const keycloak = inject<Keycloak>('keycloak')
 
 const map = ref<L.Map>()
+const userFullName = ref<string>('') // 🧍 overlay header text
+
 const props = defineProps<{
   routePoints: RoutePoint[]
+  userId: string
+  createdAt: string
 }>()
+
+/* ---------------------------
+   Fetch user full name
+--------------------------- */
+async function fetchUserFullName(userId: string) {
+  try {
+    const res = await fetch(`${import.meta.env.VITE_API_BASE}/users/${userId}`, {
+      headers: { Authorization: `Bearer ${keycloak?.token}` },
+    })
+    if (!res.ok) throw new Error(await res.text())
+    const data = await res.json()
+    userFullName.value = `${data.lastName}, ${data.firstName}`
+  } catch (err) {
+    console.error('Failed to fetch user name:', err)
+    userFullName.value = 'Unknown User'
+  }
+}
 
 /* ---------------------------
    🗺️ Map setup
@@ -19,16 +42,14 @@ function initMap() {
     maxZoom: 19,
     crossOrigin: true,
     attribution: '&copy; OpenStreetMap contributors',
-  }).addTo(map.value!);
+  }).addTo(map.value!)
 }
 
 /* ---------------------------
    🎨 Draw heatmap route
 --------------------------- */
 function drawRoute(routePoints: RoutePoint[]) {
-  if (!map.value || routePoints.length < 2) { 
-    return
-  } 
+  if (!map.value || routePoints.length < 2) return
 
   const coords = routePoints.map(p => [p.lat, p.lng] as [number, number])
   const durations = routePoints.map(p => p.duration ?? 0)
@@ -36,6 +57,7 @@ function drawRoute(routePoints: RoutePoint[]) {
   const min = Math.min(...durations)
   const range = Math.max(max - min, 1000)
 
+  // Draw color segments
   for (let i = 0; i < coords.length - 1; i++) {
     const d = durations[i] ?? min
     const t = (d - min) / range
@@ -51,15 +73,12 @@ function drawRoute(routePoints: RoutePoint[]) {
 }
 
 /* ---------------------------
-   🏁 Start / End labels with offset + connector
+   🏁 Start / End markers
 --------------------------- */
 function addStartEndMarkers(coords: LatLngExpression[]) {
   if (!map.value || coords.length < 2) return
-
   const [start, end] = [coords[0]!, coords[coords.length - 1]!]
-
-  // Offset markers by small lat/lng deltas
-  const OFFSET = 0.0002 // ≈ 20 meters
+  const OFFSET = 0.0002
   const startOffset: LatLngExpression = [
     (start as [number, number])[0] + OFFSET,
     (start as [number, number])[1] + OFFSET,
@@ -69,33 +88,21 @@ function addStartEndMarkers(coords: LatLngExpression[]) {
     (end as [number, number])[1] - OFFSET,
   ]
 
-  // Connector lines (thin and gray)
-  L.polyline([start, startOffset], {
-    color: '#555',
-    weight: 1.5,
-    dashArray: '3, 3',
-  }).addTo(map.value!)
-  L.polyline([end, endOffset], {
-    color: '#555',
-    weight: 1.5,
-    dashArray: '3, 3',
-  }).addTo(map.value!)
+  L.polyline([start, startOffset], { color: '#555', weight: 1.5, dashArray: '3, 3' }).addTo(map.value!)
+  L.polyline([end, endOffset], { color: '#555', weight: 1.5, dashArray: '3, 3' }).addTo(map.value!)
 
-  // DivIcons with styled labels (slightly offset)
   const startIcon = L.divIcon({
     className: 'route-label start-label',
     html: '<div class="label-text">Start</div>',
-    iconSize: [40, 20],
-    iconAnchor: [20, 20],
+    iconSize: [48, 28],
+    iconAnchor: [24, 22],
   })
-
   const endIcon = L.divIcon({
     className: 'route-label end-label',
     html: '<div class="label-text">End</div>',
-    iconSize: [40, 20],
-    iconAnchor: [20, 20],
+    iconSize: [48, 28],
+    iconAnchor: [24, 22],
   })
-
   L.marker(startOffset, { icon: startIcon }).addTo(map.value!)
   L.marker(endOffset, { icon: endIcon }).addTo(map.value!)
 }
@@ -132,10 +139,12 @@ function addHeatLegend(min: number, max: number) {
         width: 180px;
         border-radius: 6px;
         margin-bottom: 6px;
+        border: 1px solid rgba(0,0,0,0.2);
       "></div>
       <div style="
         display: flex;
         justify-content: space-between;
+        align-items: center;
         font-size: 11px;
         color: #222;
       ">
@@ -150,50 +159,119 @@ function addHeatLegend(min: number, max: number) {
 }
 
 /* ---------------------------
-   🚀 Lifecycle
+   🚀 Lifecycle & Watch
 --------------------------- */
-onMounted(() => {
-  initMap()
-})
+onMounted(() => initMap())
 
-watch(() => props.routePoints, (newRoutePoints) => { 
-    drawRoute(newRoutePoints);
-});
+watch(
+  () => props.routePoints,
+  async newPoints => {
+    if (!newPoints?.length) return
+    await fetchUserFullName(props.userId)
+    drawRoute(newPoints)
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
-  <v-container>
-    <h2>Volunteer Route</h2>
-    <div id="map" style="height: 80vh; border-radius: 12px; overflow: hidden;"></div>
-  </v-container>
+  <div class="map-container">
+    <div id="map"></div>
+
+    <!-- 🧾 Overlay header -->
+    <div class="map-header">
+      <div class="user-name">{{ userFullName }}</div>
+      <div class="route-date">
+        {{ new Date(props.createdAt).toLocaleString(undefined, {
+          dateStyle: 'medium',
+          timeStyle: 'short'
+        }) }}
+      </div>
+    </div>
+  </div>
 </template>
 
-<style>
-.heat-legend {
-  background: white;
-  padding: 6px 8px;
-  border-radius: 8px;
+<style scoped>
+.map-container {
+  position: relative;
+  height: 100%;
+}
+
+#map {
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* 🌍 Overlay Header */
+.map-header {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(4px);
+  border-radius: 10px;
+  padding: 10px 14px;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  z-index: 9999;
   font-family: system-ui, sans-serif;
 }
 
-/* Label styles for Start/End markers */
+.user-name {
+  font-weight: 600;
+  font-size: 16px;
+  color: #1e293b;
+}
+
+.route-date {
+  font-size: 13px;
+  color: #475569;
+}
+
+</style>
+
+<!-- ✅ Unscoped block so Leaflet-injected icons get styles -->
+<style>
 .route-label {
   background: transparent;
   border: none;
 }
-.label-text {
+
+.route-label .label-text {
   background-color: white;
   border: 2px solid #1976d2;
   border-radius: 6px;
-  padding: 2px 6px;
-  font-size: 12px;
-  font-weight: 600;
+  padding: 4px 8px;
+  font-size: 13px;
+  font-weight: 700;
   color: #1976d2;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  text-align: center;
+  white-space: nowrap;
 }
-.end-label .label-text {
+
+.route-label.end-label .label-text {
   border-color: #e53935;
   color: #e53935;
+}
+
+/* Heat legend */
+.heat-legend {
+  background-color: #fff !important;
+  opacity: 1 !important;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  padding: 6px 8px;
+  z-index: 9999;
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+  color: #222;
+}
+
+.heat-legend div {
+  background-clip: padding-box;
 }
 </style>

@@ -21,6 +21,17 @@ func (a *AdminController) ListUsers(c *gin.Context) {
 	c.JSON(http.StatusOK, users)
 }
 
+func (a *AdminController) FetchUserById(c *gin.Context) {
+	id := c.Param("userID")
+
+	user, err := a.Service.GetUserById(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	c.JSON(http.StatusOK, user)
+}
+
 func (a *AdminController) UpdateUserRole(c *gin.Context) {
 	id := c.Param("id")
 

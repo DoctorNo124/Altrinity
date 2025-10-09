@@ -6,6 +6,10 @@ type AdminService struct {
 	Repo *repositories.KeycloakRepo
 }
 
+func (s *AdminService) GetUserById(userID string) (*repositories.KeycloakUser, error) {
+	return s.Repo.FetchUserByID(userID)
+}
+
 func (s *AdminService) ListUsers() ([]repositories.KeycloakUser, error) {
 	return s.Repo.FetchUsers()
 }

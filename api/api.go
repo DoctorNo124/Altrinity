@@ -81,6 +81,7 @@ func main() {
 	api := r.Group("/api")
 	{
 		api.GET("/users", middleware.AuthMiddleware("admin"), adminController.ListUsers)
+		api.GET("/users/:userID", middleware.AuthMiddleware("admin"), adminController.FetchUserById)
 		api.PUT("/users/:id/role", middleware.AuthMiddleware("admin"), adminController.UpdateUserRole)
 		api.GET("/public", func(c *gin.Context) {
 			c.JSON(200, gin.H{"msg": "anyone can access this"})
